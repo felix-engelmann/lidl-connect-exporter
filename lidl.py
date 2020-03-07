@@ -6,6 +6,7 @@ from prometheus_client.core import REGISTRY
 import requests
 import re
 import os
+import time
 
 class LidlCollector(object):
     def collect(self):
