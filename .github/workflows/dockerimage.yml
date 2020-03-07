@@ -3,9 +3,7 @@ name: Docker Image CI
 on:
   push:
     branches: [ master ]
-  pull_request:
-    branches: [ master ]
-
+  
 jobs:
 
   build:
@@ -14,5 +12,9 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - name: Login to DockerHub Registry
+      run: docker login -u ${{ secrets.DOCKER_USER }} -p ${{ secrets.DOCKER_TOKEN }}
     - name: Build the Docker image
       run: docker build . --file Dockerfile --tag felixengelmann/lidl-connect-exporter:latest
+    - name: Push the tagged Docker image
+      run: docker push felixengelmann/lidl-connect-exporter:latest
