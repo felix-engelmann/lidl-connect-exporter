@@ -30,7 +30,7 @@ class LidlCollector(object):
         uu.add_metric(['used'], int(m.group(1)))
         yield uu
         
-        ut = GaugeMetricFamily("total_unity", 'Units total')
+        ut = GaugeMetricFamily("total_units", 'Units total')
         ut.add_metric(['total'], int(m.group(2)))
         yield ut
         
