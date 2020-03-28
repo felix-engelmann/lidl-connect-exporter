@@ -26,14 +26,15 @@ class LidlCollector(object):
         yield t
         
         m=re.search('amount-text">\s+(\d+) Min/SMS von (\d+) Min/SMS verbraucht\s+</div', r1.content.decode('utf8') )
-        uu = CounterMetricFamily("used_units", 'Units used')
-        uu.add_metric(['used'], int(m.group(1)))
-        yield uu
-        
-        ut = GaugeMetricFamily("total_units", 'Units total')
-        ut.add_metric(['total'], int(m.group(2)))
-        yield ut
-        
+        if m is not None:
+            uu = CounterMetricFamily("used_units", 'Units used')
+            uu.add_metric(['used'], int(m.group(1)))
+            yield uu
+            
+            ut = GaugeMetricFamily("total_units", 'Units total')
+            ut.add_metric(['total'], int(m.group(2)))
+            yield ut
+    
         m=re.search('balance-amount">([\d,]+) &euro;</span>', r1.content.decode('utf8') )
         bal = GaugeMetricFamily("balance", 'balance')
         bal.add_metric(['total'], float(m.group(1).replace(',','.')))
