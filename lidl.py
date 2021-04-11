@@ -142,7 +142,7 @@ class LidlAPI():
 
         calls_stat = {}
         calls_type = {}
-        for item in data["currentCustomer"]["itemisedBills"]:
+        for item in reversed(data["currentCustomer"]["itemisedBills"]):
             key = item["typeKey"]
             if key not in calls_stat:
                 calls_stat[key] = {"duration":0,"units":0, "value":0}
@@ -166,6 +166,7 @@ class LidlAPI():
             elif key == "SRV": # new booking
                 #print("calls data")
                 #print(calls_stat)
+                #print("reset")
                 calls_stat = {}
                 calls_type = {}
             elif key in ["CDT"]:
@@ -173,7 +174,7 @@ class LidlAPI():
                 calls_stat[key]["value"]+=value
             else:
                 print("unknown record:", item)
-                
+
         return (calls_stat, calls_type)
 
 class LidlCollector(object):
