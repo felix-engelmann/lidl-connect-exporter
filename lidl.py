@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 import os
 from prometheus_client import Counter
 from prometheus_client import start_http_server
@@ -61,9 +62,11 @@ class LidlAPI():
                     "Authorization": "Bearer %s"%self.access_token}
                     )
 
-    def get_param(self, query):
+    def _api_call(self, query, variables=None):
         self.refreshAccessToken()
-        data = self.client.execute(query=query)
+        if variables is None:
+            variables = {}
+        data = self.client.execute(query=query, variables=variables)
         return data['data']
 
 
@@ -77,7 +80,7 @@ class LidlAPI():
                 }
             }
         """
-        return self.get_param(query)['currentCustomer']['balance']
+        return self._api_call(query)['currentCustomer']['balance']
 
     def get_usage(self):
 
@@ -97,13 +100,81 @@ class LidlAPI():
                 }
             }
         """
-        data = self.get_param(query)
+        data = self._api_call(query)
         r = {}
         r["consumed"] = data['consumptions']['consumptionsForUnit'][0]["consumed"]
         r["max"] = data['consumptions']['consumptionsForUnit'][0]["max"]
         r["unit"] = data['consumptions']['consumptionsForUnit'][0]["unit"]
         return r
+    
+    def get_calls(self):
+        query = """
+            query itemisedBills($filter: ItemisedBillFilterInput) {
+                currentCustomer {
+                    contract {
+                        msisdn
+                        __typename
+                    }
+                    itemisedBills(filter: $filter) {
+                        actionDate
+                        destination
+                        details
+                        duration
+                        fromCountry
+                        groupKey
+                        id
+                        productCode
+                        requestorID
+                        toCountry
+                        typeKey
+                        value
+                        __typename
+                    }
+                __typename
+                }
+            }"""
+        variables = {"filter":{
+            "from":(datetime.now()-timedelta(days=40)).date().strftime("%d.%m.%Y"),
+            "to":datetime.now().date().strftime("%d.%m.%Y")}
+        }
 
+        data = self._api_call(query, variables)
+
+        calls_stat = {}
+        calls_type = {}
+        for item in data["currentCustomer"]["itemisedBills"]:
+            key = item["typeKey"]
+            if key not in calls_stat:
+                calls_stat[key] = {"duration":0,"units":0, "value":0}
+            if key == "CDR": # call
+                try:
+                    value = int(item["value"])
+                    duration = int(item["duration"])
+                    units = duration//60+1
+                    calls_stat[key]["duration"]+=duration
+                    calls_stat[key]["units"]+=units
+                    product = item["productCode"]
+                    if product not in calls_type:
+                        calls_type[product] = {"duration":0}
+                    calls_type[product]["duration"]+=duration
+                except:
+                    print("no duration for", item)
+            elif key == "SMS":
+                value = int(item["value"])
+                calls_stat[key]["value"]+=value
+                calls_stat[key]["units"]+=1
+            elif key == "SRV": # new booking
+                #print("calls data")
+                #print(calls_stat)
+                calls_stat = {}
+                calls_type = {}
+            elif key in ["CDT"]:
+                value = int(item["value"])
+                calls_stat[key]["value"]+=value
+            else:
+                print("unknown record:", item)
+                
+        return (calls_stat, calls_type)
 
 class LidlCollector(object):
 
@@ -123,6 +194,17 @@ class LidlCollector(object):
         t = GaugeMetricFamily("total_gb", 'GB total')
         t.add_metric(['total'], usage["max"])
         yield t
+        
+        calls, types = self.api.get_calls()
+        units = GaugeMetricFamily("used_units", 'Units used', labels=["type"])
+        for key in calls:
+            units.add_metric([key], calls[key]['units'])
+        yield units
+        
+        seconds = GaugeMetricFamily("called_seconds", 'Called Seconds', labels=["network"])
+        for net in types:
+            seconds.add_metric([net], types[net]['duration'])
+        yield seconds
 
         bal = GaugeMetricFamily("balance", 'balance')
         bal.add_metric(['total'], self.api.get_balance()/100)
