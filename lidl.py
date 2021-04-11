@@ -1,43 +1,131 @@
-import sys
+import os
 from prometheus_client import Counter
 from prometheus_client import start_http_server
 from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily
 from prometheus_client.core import REGISTRY
+from python_graphql_client import GraphqlClient
 import requests
-import re
-import os
 import time
 
+
+# thanks to https://betterprogramming.pub/how-to-refresh-an-access-token-using-decorators-981b1b12fcb9
+class LidlAPI():
+    host = None
+    key = None
+    secret = None
+    access_token = None
+    access_token_expiration = None
+    client = None
+
+    def __init__(self,username,password,host="https://lidl-api.prod.vodafone.aws-arvato.com"):
+        # the function that is executed when
+        # an instance of the class is created
+        self.host = host
+        self.username = username
+        self.password = password
+
+        self.refreshAccessToken()
+
+
+    def refreshAccessToken(self):
+        # the function that is
+        # used to request the JWT
+        if self.access_token_expiration is None or time.time() > self.access_token_expiration:
+            try:
+                # build the JWT and store
+                # in the variable `token_body`
+                token_body = {
+                    "grant_type":"password",
+                    "client_id":"lidl",
+                    "client_secret":"lidl",
+                    "username":self.username,
+                    "password":self.password
+                }
+                # request an access token
+                request = requests.post("%s/api/token"%self.host,data=token_body)
+
+                # optional: raise exception for status code
+                request.raise_for_status()
+            except Exception as e:
+                raise e
+                print(e)
+                #return None
+            else:
+                # assuming the response's structure is
+                # {"access_token": ""}
+                self.access_token = request.json()['access_token']
+                self.access_token_expiration = time.time() + 3500
+                self.client = GraphqlClient(
+                    endpoint="%s/api/graphql"%self.host,headers={
+                    "Content-type": "application/json",
+                    "Authorization": "Bearer %s"%self.access_token}
+                    )
+
+    def get_param(self, query):
+        self.refreshAccessToken()
+        data = self.client.execute(query=query)
+        return data['data']
+
+
+    def get_balance(self):
+        # Create the query string and variables required for the request.
+        query = """
+            query balanceInfo {
+                currentCustomer {
+                    balance
+                    __typename
+                }
+            }
+        """
+        return self.get_param(query)['currentCustomer']['balance']
+
+    def get_usage(self):
+
+        query = """
+            query consumptions {
+                consumptions {
+                    consumptionsForUnit {
+                        consumed
+                        unit
+                        formattedUnit
+                        type
+                        description
+                        expirationDate
+                        left
+                        max
+                    }
+                }
+            }
+        """
+        data = self.get_param(query)
+        r = {}
+        r["consumed"] = data['consumptions']['consumptionsForUnit'][0]["consumed"]
+        r["max"] = data['consumptions']['consumptionsForUnit'][0]["max"]
+        r["unit"] = data['consumptions']['consumptionsForUnit'][0]["unit"]
+        return r
+
+
 class LidlCollector(object):
+
+    api = None
+
+    def __init__(self, api):
+        self.api = api
+
     def collect(self):
-        s = requests.Session()
-        r0=s.get('https://kundenkonto.lidl-connect.de/login.html')
-        m=re.search('name="REQUEST_TOKEN" value="([^"]*)', r0.content.decode('utf8') )
-        token = m.group(1)
-        r1 = s.post('https://kundenkonto.lidl-connect.de/login.html', {"REQUEST_TOKEN":token, "lastpage": 1, "msisdn_msisdn":msisdn,"password":password})
         
-        m=re.search('amount-text">\s+([\d,]+) GB von ([\d,]+) GB verbraucht\s+</div', r1.content.decode('utf8') )
+        usage = self.api.get_usage()
+
         c = CounterMetricFamily("used_gb", 'GB used')
-        c.add_metric(['used'], float(m.group(1).replace(',','.')))
+        c.add_metric(['used'], usage["consumed"])
         yield c
-        
+
         t = GaugeMetricFamily("total_gb", 'GB total')
-        t.add_metric(['total'], float(m.group(2).replace(',','.')))
+        t.add_metric(['total'], usage["max"])
         yield t
-        
-        m=re.search('amount-text">\s+(\d+) Min/SMS von (\d+) Min/SMS verbraucht\s+</div', r1.content.decode('utf8') )
-        if m is not None:
-            uu = CounterMetricFamily("used_units", 'Units used')
-            uu.add_metric(['used'], int(m.group(1)))
-            yield uu
-            
-            ut = GaugeMetricFamily("total_units", 'Units total')
-            ut.add_metric(['total'], int(m.group(2)))
-            yield ut
-    
-        m=re.search('balance-amount">([\d,]+) &euro;</span>', r1.content.decode('utf8') )
+
         bal = GaugeMetricFamily("balance", 'balance')
-        bal.add_metric(['total'], float(m.group(1).replace(',','.')))
+        bal.add_metric(['total'], self.api.get_balance()/100)
         yield bal
 
 
@@ -48,8 +136,10 @@ if __name__ == '__main__':
     
     if msisdn is None or password is None:
         sys.exit(1)
-    
-    REGISTRY.register(LidlCollector())
+
+    lidl = LidlAPI(msisdn, password)
+    col = LidlCollector(lidl)
+    REGISTRY.register(col)
     # start the server
     start_http_server(port)
     try:
