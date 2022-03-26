@@ -18,7 +18,7 @@ class LidlAPI():
     access_token_expiration = None
     client = None
 
-    def __init__(self,username,password,host="https://lidl-api.prod.vodafone.aws-arvato.com"):
+    def __init__(self,username,password,host="https://api.lidl-connect.de"):
         # the function that is executed when
         # an instance of the class is created
         self.host = host
