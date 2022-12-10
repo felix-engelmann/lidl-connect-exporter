@@ -102,9 +102,14 @@ class LidlAPI():
         """
         data = self._api_call(query)
         r = {}
-        r["consumed"] = data['consumptions']['consumptionsForUnit'][0]["consumed"]
-        r["max"] = data['consumptions']['consumptionsForUnit'][0]["max"]
-        r["unit"] = data['consumptions']['consumptionsForUnit'][0]["unit"]
+        if len(data['consumptions']['consumptionsForUnit']) > 0:
+            r["consumed"] = data['consumptions']['consumptionsForUnit'][0]["consumed"]
+            r["max"] = data['consumptions']['consumptionsForUnit'][0]["max"]
+            r["unit"] = data['consumptions']['consumptionsForUnit'][0]["unit"]
+        else:
+            r["consumed"] = 0.0
+            r["max"] = 0
+            r["unit"] = 'GB'
         return r
     
     def get_calls(self):
