@@ -102,14 +102,12 @@ class LidlAPI():
         """
         data = self._api_call(query)
         r = {}
-        if len(data['consumptions']['consumptionsForUnit']) > 0:
-            r["consumed"] = data['consumptions']['consumptionsForUnit'][0]["consumed"]
-            r["max"] = data['consumptions']['consumptionsForUnit'][0]["max"]
-            r["unit"] = data['consumptions']['consumptionsForUnit'][0]["unit"]
-        else:
-            r["consumed"] = 0.0
-            r["max"] = 0
-            r["unit"] = 'GB'
+        for typ in data['consumptions']['consumptionsForUnit']:
+            r[typ["type"]] = {}
+            r[typ["type"]]["consumed"] = typ["consumed"]
+            r[typ["type"]]["max"] = typ["max"]
+            r[typ["type"]]["unit"] = typ["unit"]
+            r[typ["type"]]["formattedUnit"] = typ["formattedUnit"]
         return r
     
     def get_calls(self):
@@ -192,14 +190,15 @@ class LidlCollector(object):
     def collect(self):
         
         usage = self.api.get_usage()
+        
+        for typ,val in usage.items():
+            c = CounterMetricFamily("used_"+typ, val["formattedUnit"]+' used')
+            c.add_metric(['used'], val["consumed"])
+            yield c
 
-        c = CounterMetricFamily("used_gb", 'GB used')
-        c.add_metric(['used'], usage["consumed"])
-        yield c
-
-        t = GaugeMetricFamily("total_gb", 'GB total')
-        t.add_metric(['total'], usage["max"])
-        yield t
+            t = GaugeMetricFamily("total_"+typ, val["formattedUnit"]+' total')
+            t.add_metric(['total'], val["max"])
+            yield t
         
         calls, types = self.api.get_calls()
         units = GaugeMetricFamily("used_units", 'Units used', labels=["type"])
